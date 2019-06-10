@@ -26,6 +26,8 @@ MainWindow::MainWindow(QWidget *parent, int p) : QMainWindow(parent), ui(new Ui:
 {
     ui->setupUi(this);
 
+    this->setWindowIcon(QIcon("png/main.png"));
+
     port = p;
     tcpServer = nullptr;
     MyError = 0;
@@ -262,6 +264,7 @@ void MainWindow::slotCliDone(QTcpSocket *cli, int prn)
         disconnect(cli);
         cli->close();
         ui->sending->setEnabled(false);
+
     }
     this->disconnect();
     SClients.remove(fd);
