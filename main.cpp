@@ -2,14 +2,18 @@
 
 int main(int argc, char *argv[])
 {
-int port = 9090, cerr = 0;
+int cerr = 0;
 QString errStr = "", cerrStr;
 
     setlocale(LC_ALL,"UTF8");
+
+    if (argc > 1) srv_port       = atoi(argv[1]); else srv_port       = 9192;  // first param - port, default 9192
+    if (argc > 2) time_wait_data = atoi(argv[2]); else time_wait_data = 60000; // second param - timeout in ms, default 60000 ms
+
     try {
         QApplication app(argc, argv);
 
-        MainWindow wnd(nullptr, port);
+        MainWindow wnd(nullptr);
 
         wnd.show();
 

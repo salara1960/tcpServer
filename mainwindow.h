@@ -33,7 +33,7 @@ extern const char *vers;
 
 extern const QString title;
 extern const QString LogFileName;
-extern const int time_wait_data;
+extern int time_wait_data;
 extern int srv_port;
 
 extern const char *SeqNum;
@@ -57,7 +57,7 @@ public:
             TheError(int);
     };
 
-    explicit MainWindow(QWidget *parent = nullptr, int p = 9090);
+    explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
     void timerEvent(QTimerEvent *event);
 
@@ -87,7 +87,7 @@ private:
     Ui::MainWindow *ui;
 
     bool client, rdy, work;
-    int MyError, port, rxdata, txdata, lenrecv;
+    int MyError, rxdata, txdata, lenrecv;
     int fd, tmr_sec, server_status;
     char to_cli[max_buf], from_cli[max_buf];
     qint32 seq_number, pack_number;

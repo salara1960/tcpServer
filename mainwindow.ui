@@ -103,6 +103,12 @@ background-color:rgb(226, 226, 226)}</string>
         <italic>true</italic>
        </font>
       </property>
+      <property name="frameShape">
+       <enum>QFrame::WinPanel</enum>
+      </property>
+      <property name="verticalScrollBarPolicy">
+       <enum>Qt::ScrollBarAlwaysOn</enum>
+      </property>
      </widget>
     </item>
     <item row="4" column="0">

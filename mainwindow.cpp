@@ -9,12 +9,13 @@
 //char const *vers = "1.0";//06.06.2019
 //char const *vers = "1.1";//07.06.2019
 //char const *vers = "1.2";//09.06.2019
-char const *vers = "1.3";//10.06.2019 - add wait_data_from_client timer
+//char const *vers = "1.3";//10.06.2019 - add wait_data_from_client timer
+char const *vers = "1.4";//11.06.2019 - add time_wait_data_from_client parameter (second param)
 
 const QString title = "TCP server (for STM32_SIM868)";
 const QString LogFileName = "logs.txt";
-const int time_wait_data = 30000;//in msec.
-int srv_port = 0;
+int time_wait_data = 60000;//in msec.
+int srv_port = 9192;
 
 const char *SeqNum = "SeqNum";
 const char *DataSN = "DataSeqNum";
@@ -22,13 +23,12 @@ const char *DataSN = "DataSeqNum";
 
 //******************************************************************************************************
 
-MainWindow::MainWindow(QWidget *parent, int p) : QMainWindow(parent), ui(new Ui::MainWindow)
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
 
     this->setWindowIcon(QIcon("png/main.png"));
 
-    port = p;
     tcpServer = nullptr;
     MyError = 0;
     client = false;
@@ -45,7 +45,7 @@ MainWindow::MainWindow(QWidget *parent, int p) : QMainWindow(parent), ui(new Ui:
 
     tmr_sec = startTimer(1000);// 1 sec.
     if (tmr_sec <= 0) {
-        MyError |= 8;//start_timer error
+        MyError |= 2;//start_timer error
         throw TheError(MyError);
     }
     tmr_data = 0;
@@ -124,7 +124,7 @@ void MainWindow::on_starting_clicked()
 {
 
     clearParam();
-    ui->starting->setEnabled(false);
+
     ui->stoping->setEnabled(true);
 
     tcpServer = new QTcpServer(this);
@@ -134,15 +134,19 @@ void MainWindow::on_starting_clicked()
         throw TheError(MyError);
     }
 
-    QString stx = "Server start, listen port " + QString::number(port, 10);
+    QString stx =   "Server start, listen port " + QString::number(srv_port, 10) +
+                    ", timeout " +                 QString::number(time_wait_data/1000, 10) +
+                    " sec.";
 
     connect(tcpServer, SIGNAL(newConnection()), this, SLOT(newuser()));
-    if (!tcpServer->listen(QHostAddress("0.0.0.0"), port&0xffff) && !server_status) {
+    if (!tcpServer->listen(QHostAddress("0.0.0.0"), srv_port & 0xffff) && !server_status) {
         stx.clear();
-        stx.append("Unable to start the server : " + tcpServer->errorString());
+        stx.append("Unable to start server on port " + QString::number(srv_port, 10) + " : " + tcpServer->errorString());
+        ui->starting->setEnabled(true);
     } else {
         server_status = 1;
         pack_number = 0;
+        ui->starting->setEnabled(false);
     }
 
     statusBar()->clearMessage();
@@ -209,7 +213,7 @@ void MainWindow::newuser()
             wait_data = true;
             tmr_data = startTimer(time_wait_data);//wait data from device until 30 sec
             if (tmr_data <= 0) {
-                MyError |= 8;//start_timer error
+                MyError |= 2;//start_timer error
                 throw TheError(MyError);
             }
         } else {
@@ -308,7 +312,7 @@ void MainWindow::slotRdyPack(QTcpSocket *cli)
     wait_data = true;
     tmr_data = startTimer(time_wait_data);//wait data from device until 30 sec
     if (tmr_data <= 0) {
-        MyError |= 8;//start_timer error
+        MyError |= 2;//start_timer error
         throw TheError(MyError);
     }
 
