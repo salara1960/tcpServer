@@ -88,8 +88,8 @@ private:
     char to_cli[max_buf], from_cli[max_buf];
     qint32 seq_number, pack_number;
     QTimer tmr_data;
-    Qt::HANDLE tid;
     time_t epoch;
+    void *tid;
 };
 
 

@@ -11,7 +11,8 @@
 //char const *vers = "2.1";//17.06.2019 - add endofjob all client's threads by signal sigStopAll
 //char const *vers = "2.2";//17.06.2019 - add queue for print log via LogSave(...)
 //char const *vers = "2.3";//18.06.2019 - minor changes in print_queue : edit s_prn (used dynamic memory)
-char const *vers = "2.4";//18.06.2019 - minor changes : add inactive client's timer
+//char const *vers = "2.4";//18.06.2019 - minor changes : add inactive client's timer
+char const *vers = "2.5";//18.06.2019 - minor changes+
 
 const QString title = "TCP server (for STM32_SIM868)";
 
@@ -36,8 +37,8 @@ itThread::itThread(QTcpSocket *soc, QObject *parent) : QThread(parent)
 {
     socket = soc;
     fd = static_cast<int>(socket->socketDescriptor());
-    tid = this->currentThreadId();
     err = 0;
+    tid = nullptr;
     clearParam();
 
     connect(socket, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(slotErrorClient(QAbstractSocket::SocketError)));
@@ -54,8 +55,10 @@ itThread::itThread(QTcpSocket *soc, QObject *parent) : QThread(parent)
 }
 //-----------------------------------------------------------------------
 void itThread::run()
-{
-    QString st; st.sprintf("Start thread with id %p. Total clients %u.", tid, total_cli);
+{   
+    tid = (void *)this->currentThread();
+
+    QString st; st.sprintf("Start new thread (%p). Total clients %u.", tid, total_cli);
 
     Uki->putToQue(__func__, st, true, fd);
 
@@ -115,6 +118,9 @@ void itThread::slotRdyPack()
     dt.clear();
     dt.append(to_cli);
     Uki->setAck(dt);
+
+    if (strstr(from_cli, "exit")) emit sigDone();
+
     clearParam();
 
     tmr_data.singleShot(tmr_data_wait, this, SLOT(slotTime()));
@@ -143,7 +149,7 @@ void itThread::stop()
     if (!err) {
         if (socket->isOpen()) socket->close();
     }
-    QString st; st.sprintf("Stop thread with id %p. Total clients %u.", tid, total_cli);
+    QString st; st.sprintf("Stop thread (%p). Total clients %u.", tid, total_cli);
 
     Uki->putToQue(__func__, st, true, fd);
 
