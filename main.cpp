@@ -7,8 +7,8 @@ QString errStr = "", cerrStr;
 
     setlocale(LC_ALL,"UTF8");
 
-    if (argc > 1) srv_port       = atoi(argv[1]); else srv_port       = 9192;  // first param - port, default 9192
-    if (argc > 2) time_wait_data = atoi(argv[2]); else time_wait_data = 60000; // second param - timeout in ms, default 60000 ms
+    if (argc > 1) srv_port      = atoi(argv[1]);
+    if (argc > 2) tmr_data_wait = atoi(argv[2]);
 
     try {
         QApplication app(argc, argv);

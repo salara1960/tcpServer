@@ -1,323 +1,175 @@
-#include "mainwindow.h"
+﻿#include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-//******************************************************************************************************
+//********************************************************************************************************
 //
-//       TCP Server for testing stm32_sim868 project (https://github.com/salara1960/stm32_sim868)
+//  TCP Server (thread mode) for testing stm32_sim868 project (https://github.com/salara1960/stm32_sim868)
 //
-//******************************************************************************************************
-//char const *vers = "1.0";//06.06.2019
-//char const *vers = "1.1";//07.06.2019
-//char const *vers = "1.2";//09.06.2019
-//char const *vers = "1.3";//10.06.2019 - add wait_data_from_client timer
-char const *vers = "1.4";//11.06.2019 - add time_wait_data_from_client parameter (second param)
+//********************************************************************************************************
+
+//char const *vers = "2.0";//14.06.2019 - add thread for each client
+//char const *vers = "2.1";//17.06.2019 - add endofjob all client's threads by signal sigStopAll
+//char const *vers = "2.2";//17.06.2019 - add queue for print log via LogSave(...)
+//char const *vers = "2.3";//18.06.2019 - minor changes in print_queue : edit s_prn (used dynamic memory)
+char const *vers = "2.4";//18.06.2019 - minor changes : add inactive client's timer
 
 const QString title = "TCP server (for STM32_SIM868)";
-const QString LogFileName = "logs.txt";
-int time_wait_data = 60000;//in msec.
+
 int srv_port = 9192;
+
+const QString LogFileName = "logs.txt";
 
 const char *SeqNum = "SeqNum";
 const char *DataSN = "DataSeqNum";
+MainWindow *Uki = nullptr;
+
+static uint32_t total_cli = 0;
+int tmr_data_wait = 30000;
 
 
-//******************************************************************************************************
+//*****************************************************************************************************
+//*****************************************************************************************************
+//*****************************************************************************************************
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
+
+itThread::itThread(QTcpSocket *soc, QObject *parent) : QThread(parent)
 {
-    ui->setupUi(this);
+    socket = soc;
+    fd = static_cast<int>(socket->socketDescriptor());
+    tid = this->currentThreadId();
+    err = 0;
+    clearParam();
 
-    this->setWindowIcon(QIcon("png/main.png"));
+    connect(socket, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(slotErrorClient(QAbstractSocket::SocketError)));
+    connect(socket, SIGNAL(readyRead()),    this, SLOT(slotReadClient()), Qt::DirectConnection);
+    //connect(socket, SIGNAL(disconnected()), this, SLOT(stop()));
 
-    tcpServer = nullptr;
-    MyError = 0;
-    client = false;
-    CliUrl.clear();
-    seq_number = 0;
+    connect(this,   SIGNAL(sigRdyPack()),   this, SLOT(slotRdyPack()));
+    connect(this,   SIGNAL(sigDone()),      this, SLOT(stop()));
+    connect(this,   SIGNAL(sigTime()),      this, SLOT(slotTime()));
 
-    fd = -1;
-    pack_number = 0;
-    setWindowTitle(title + " ver. " + vers);
-
-    ui->starting->setEnabled(true);
-    ui->stoping->setEnabled(false);
-    ui->sending->setEnabled(false);
-
-    tmr_sec = startTimer(1000);// 1 sec.
-    if (tmr_sec <= 0) {
-        MyError |= 2;//start_timer error
-        throw TheError(MyError);
-    }
-    tmr_data = 0;
-    wait_data = false;
+    tmr_data.singleShot(tmr_data_wait, this, SLOT(slotTime()));
+    epoch = QDateTime::currentDateTime().toTime_t();
 
 }
 //-----------------------------------------------------------------------
-MainWindow::~MainWindow()
+void itThread::run()
 {
-    killTimer(tmr_sec);
-    if (tmr_data > 0) killTimer(tmr_data);
-    this->disconnect();
-    delete ui;
-}
-//-----------------------------------------------------------------------
+    QString st; st.sprintf("Start thread with id %p. Total clients %u.", tid, total_cli);
 
-MainWindow::TheError::TheError(int err) { code = err; }//error class descriptor
+    Uki->putToQue(__func__, st, true, fd);
 
-//-----------------------------------------------------------------------
-void MainWindow::LogSave(const char *func, QString st, bool pr)
-{
-    QFile fil(LogFileName);
-    if (fil.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
-        QString fw;
-        if (pr) {
-            time_t ict = QDateTime::currentDateTime().toTime_t();
-            struct tm *ct = localtime(&ict);
-            fw.sprintf("%02d.%02d.%02d %02d:%02d:%02d | ", ct->tm_mday, ct->tm_mon+1, ct->tm_year+1900, ct->tm_hour, ct->tm_min, ct->tm_sec);
-        }
-        if (func) {
-            fw.append("[");
-            fw.append(func);
-            fw.append("] ");
-        }
-        fw.append(st);
-        ui->log->append(fw);//to log screen
-        if (fw.at(fw.length() - 1) != '\n') fw.append("\n");
-        fil.write(fw.toLocal8Bit(), fw.length());
-        fil.close();
-    }
+    exec();
 }
 //-----------------------------------------------------------------------
-void MainWindow::timerEvent(QTimerEvent *event)
-{ 
-    if (tmr_sec == event->timerId()) {
-        time_t it_ct = QDateTime::currentDateTime().toTime_t();
-        struct tm *ctimka = localtime(&it_ct);
-        QString dt;
-        dt.sprintf(" | %02d.%02d.%02d %02d:%02d:%02d",
-                    ctimka->tm_mday,
-                    ctimka->tm_mon+1,
-                    ctimka->tm_year+1900,
-                    ctimka->tm_hour,
-                    ctimka->tm_min,
-                    ctimka->tm_sec);
-        setWindowTitle(title + " ver. " + vers + dt);
-    } else if (tmr_data == event->timerId()) {
-        if (wait_data) {
-            statusBar()->clearMessage();
-            statusBar()->showMessage("!!! TimeOut wait data from device !!!");
-            emit sigWaitDone();
-        }
-    }
-}
-//-----------------------------------------------------------------------
-void MainWindow::clearParam()
+void itThread::clearParam()
 {
     memset(to_cli,   0, sizeof(to_cli));
     memset(from_cli, 0, sizeof(from_cli));
     rxdata = max_buf - 3;
     txdata = 0;
     lenrecv = 0;
+    rdy = false;
 }
 //-----------------------------------------------------------------------
-void MainWindow::on_starting_clicked()
+void itThread::slotTime()
 {
+    time_t now = QDateTime::currentDateTime().toTime_t();
+    long delta = reinterpret_cast<long>(now) - reinterpret_cast<long>(epoch);
+    long isec = tmr_data_wait / 1000;
 
-    clearParam();
+    Uki->toStatusBar("Timeout " + QString::number(isec, 10) + " sec. Done thread socket " + QString::number(fd, 10) + ". ");
 
-    ui->stoping->setEnabled(true);
-
-    tcpServer = new QTcpServer(this);
-
-    if (!tcpServer) {
-        MyError |= 1;//create server object error - no memory
-        throw TheError(MyError);
-    }
-
-    QString stx =   "Server start, listen port " + QString::number(srv_port, 10) +
-                    ", timeout " +                 QString::number(time_wait_data/1000, 10) +
-                    " sec.";
-
-    connect(tcpServer, SIGNAL(newConnection()), this, SLOT(newuser()));
-    if (!tcpServer->listen(QHostAddress("0.0.0.0"), srv_port & 0xffff) && !server_status) {
-        stx.clear();
-        stx.append("Unable to start server on port " + QString::number(srv_port, 10) + " : " + tcpServer->errorString());
-        ui->starting->setEnabled(true);
-    } else {
-        server_status = 1;
-        pack_number = 0;
-        ui->starting->setEnabled(false);
-    }
-
-    statusBar()->clearMessage();
-    statusBar()->showMessage(stx);
-    LogSave(__func__, stx, true);
-}
-//-----------------------------------------------------------------------
-void MainWindow::on_stoping_clicked()
-{
-    if (server_status){
-        foreach(int i, SClients.keys()) {
-            SClients[i]->close();
-            SClients.remove(i);
-        }
-        tcpServer->disconnect();
-        tcpServer->close();
-        statusBar()->clearMessage();
-        statusBar()->showMessage("Server stop.");
-        LogSave(__func__, "Server stop.", true);
-        server_status = 0;
-        client = rdy = false;
-        fd = -1;
-        ui->starting->setEnabled(true);
-        ui->stoping->setEnabled(false);
-        ui->sending->setEnabled(false);
-    }
-}
-//-----------------------------------------------------------------------
-void MainWindow::on_sending_clicked()
-{
-    if (fd != -1) {
-        QByteArray buf;
-        buf.append(ui->ack->text());
-        SClients[fd]->write(buf, buf.length());
-    } else ui->sending->setEnabled(false);//block send button
-}
-//-----------------------------------------------------------------------
-void MainWindow::newuser()
-{
-    if (server_status) {
-        QTcpSocket *cliSocket = tcpServer->nextPendingConnection();
-        fd = static_cast<int>(cliSocket->socketDescriptor());
-        QString stx;
-        if (!client) {
-            clearParam();
-            seq_number = pack_number = 0;
-            client = true;
-            rdy = false;
-
-            CliUrl.clear();
-            CliUrl.append(cliSocket->peerAddress().toString() + ":" + QString::number(cliSocket->peerPort(), 10));
-
-            stx.append("New client '" + CliUrl + "' online, socket " + QString::number(fd, 10));//ssock);
-            SClients[fd] = cliSocket;
-            connect(SClients[fd], SIGNAL(readyRead()),                         this, SLOT(slotReadClient()));
-            connect(this,         SIGNAL(sigCliDone(QTcpSocket *, int)),       this, SLOT(slotCliDone(QTcpSocket *, int)));
-            connect(SClients[fd], SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(slotErrorClient(QAbstractSocket::SocketError)));
-            connect(this,         SIGNAL(sigRdyPack(QTcpSocket *)),            this, SLOT(slotRdyPack(QTcpSocket *)));
-            connect(this,         SIGNAL(sigWaitDone()),                       this, SLOT(slotWaitDone()));
-            statusBar()->clearMessage();
-            statusBar()->showMessage(stx);
-            ui->sending->setEnabled(true);
-
-            wait_data = true;
-            tmr_data = startTimer(time_wait_data);//wait data from device until 30 sec
-            if (tmr_data <= 0) {
-                MyError |= 2;//start_timer error
-                throw TheError(MyError);
-            }
-        } else {
-            stx.append("New client '" + CliUrl + "' online, socket " + QString::number(fd, 10) + ", but client already present !");
-            cliSocket->close();
-        }
-        LogSave(__func__, stx, true);
-    }
-}
-//-----------------------------------------------------------------------
-void MainWindow::slotWaitDone()
-{
-    if (tmr_data) {
-        killTimer(tmr_data);
-        tmr_data = 0;
-    }
-    wait_data = false;
-    QString stx = "TimeOut wait data from device (" + QString::number(time_wait_data/1000, 10) + " sec).";
-    statusBar()->clearMessage();
-    statusBar()->showMessage(stx);
-    LogSave(__func__, stx, true);
-
-    if (fd != -1) emit sigCliDone(SClients[fd], 0);
-}
-//-----------------------------------------------------------------------
-void MainWindow::slotReadClient()
-{
-QTcpSocket *cliSocket = dynamic_cast<QTcpSocket *>(sender());
-
-    lenrecv += cliSocket->read(from_cli + lenrecv, rxdata - lenrecv);
-
-    if ( (strstr(from_cli, "exit"))  ||
-            (strstr(from_cli, "}\r\n")) ||
-                (lenrecv >= max_buf - 2) ) rdy = true;
-
-    if (rdy && lenrecv) emit sigRdyPack(cliSocket);
-}
-//-----------------------------------------------------------------------
-void MainWindow::slotCliDone(QTcpSocket *cli, int prn)
-{
-    if (cli->isOpen()) {
-        if (prn) {
-            QString stx = "Close client, socket " + QString::number(fd, 10);
-            LogSave(__func__, stx, true);
-            statusBar()->clearMessage();
-            statusBar()->showMessage(stx);
-            if (strlen(from_cli)) {
-                QString dt; dt.append(from_cli);
-                LogSave(__func__, dt, 1);
-            }
-        }
-        disconnect(cli);
-        cli->close();
-        ui->sending->setEnabled(false);
-
-    }
-    this->disconnect();
-    SClients.remove(fd);
-    fd = -1;
-    client = rdy = false;
+    if (delta >= isec) emit sigDone();
+                  else tmr_data.singleShot(tmr_data_wait, this, SLOT(slotTime()));
 
 }
 //-----------------------------------------------------------------------
-void MainWindow::slotErrorClient(QAbstractSocket::SocketError SErr)
+void itThread::slotReadClient()
 {
-QTcpSocket *cliSocket = reinterpret_cast<QTcpSocket *>(sender());
-QString qs = "Socket ERROR (" + QString::number(static_cast<int>(SErr), 10) + ") : " + cliSocket->errorString();
+    lenrecv += socket->read(from_cli + lenrecv, rxdata - lenrecv);
 
-    QString stx = "Close client, socket " + QString::number(cliSocket->socketDescriptor(), 10) + ". " + qs;
-    LogSave(__func__, stx, true);
-    statusBar()->clearMessage();
-    statusBar()->showMessage(stx);
+    if ( (strstr(from_cli, "exit"))  || (strstr(from_cli, "}\r\n")) || (lenrecv >= max_buf - 2) ) rdy = true;
 
-    emit sigCliDone(cliSocket, 0);
+    if (rdy) emit sigRdyPack();
 }
 //-----------------------------------------------------------------------
-void MainWindow::slotRdyPack(QTcpSocket *cli)
+void itThread::slotRdyPack()
 {
-
     if (!lenrecv) return;
 
+    epoch = QDateTime::currentDateTime().toTime_t();
+
     QString dt;
-    LogSave(__func__, dt.append(from_cli), 1);
+    int seqn = -1;
     char numName[64] = {0};
-    int seqn = CheckPack(from_cli, numName);
+    char *uk = strstr(from_cli, "\r\n");
+    if (uk) *uk = '\0';
+
+    Uki->putToQue(__func__, dt.append(from_cli), true, fd);
+
+    seqn = Uki->CheckPack(from_cli, numName);
     int len = sprintf(to_cli, "{\"PackNumber\":%u,\"%s\":%d}\n", ++pack_number, numName, seqn);
-    cli->write(to_cli, len);
+    socket->write(to_cli, len);
+
     dt.clear();
-    ui->ack->setText(dt.append(to_cli));
-    LogSave(__func__, dt, 1);
-
-
+    dt.append(to_cli);
+    Uki->setAck(dt);
     clearParam();
-    rdy = false;
 
-    wait_data = true;
-    tmr_data = startTimer(time_wait_data);//wait data from device until 30 sec
-    if (tmr_data <= 0) {
-        MyError |= 2;//start_timer error
-        throw TheError(MyError);
-    }
-
+    tmr_data.singleShot(tmr_data_wait, this, SLOT(slotTime()));
 }
 //-----------------------------------------------------------------------
+void itThread::slotErrorClient(QAbstractSocket::SocketError SErr)
+{
+QString qs = "Socket ERROR (" + QString::number(static_cast<int>(SErr), 10) + ") : " + socket->errorString();
+
+    QString stx = "Close client, socket " + QString::number(fd, 10) + ". " + qs;
+
+    Uki->putToQue(__func__, stx, true, fd);
+    Uki->toStatusBar(stx);
+
+    err = 1;
+
+    emit sigDone();
+}
+//-----------------------------------------------------------------------
+void itThread::stop()
+{
+    if (total_cli) total_cli--;
+
+    disconnect(this, SIGNAL(sigDone()));
+
+    if (!err) {
+        if (socket->isOpen()) socket->close();
+    }
+    QString st; st.sprintf("Stop thread with id %p. Total clients %u.", tid, total_cli);
+
+    Uki->putToQue(__func__, st, true, fd);
+
+    exit(0);
+}
+
+//*********************************************************************************************
+//*********************************************************************************************
+//*********************************************************************************************
+
+void MainWindow::setBut(bool en)
+{
+    ui->sending->setEnabled(en);
+}
+//-------------------------------------------------------------------------------------------
+void MainWindow::setAck(QString &qstr)
+{
+    ui->ack->setText(qstr);
+}
+//-------------------------------------------------------------------------------------------
+void MainWindow::toStatusBar(const QString &qstr)
+{
+    statusBar()->clearMessage();
+    statusBar()->showMessage(qstr);
+}
+//-------------------------------------------------------------------------------------------
 int MainWindow::CheckPack(const char *in, char *packName)
 {
 int ret = -1;
@@ -352,14 +204,213 @@ int ret = -1;
         }
     }
 
-    LogSave(__func__, stx, 1);
+    putToQue(__func__, stx, true, -1);
+
     statusBar()->clearMessage();
     statusBar()->showMessage(stx);
 
-    if (obj) delete obj; 
+    if (obj) delete obj;
 
     return ret;
 }
+//-------------------------------------------------------------------------------------------
+void MainWindow::LogSave(const char *func, QString st, bool pr, int from)
+{
+    QFile fil(LogFileName);
+    if (fil.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        if (mutex_prn.tryLock(1000)) {
+            //
+            QString fw;
+            if (pr) {
+                time_t ict = QDateTime::currentDateTime().toTime_t();
+                struct tm *ct = localtime(&ict);
+                fw.sprintf("%02d.%02d.%02d %02d:%02d:%02d | ",
+                           ct->tm_mday, ct->tm_mon+1, ct->tm_year+1900,
+                           ct->tm_hour, ct->tm_min, ct->tm_sec);
+            }
+            if (func) {
+                fw.append("[");
+                fw.append(func);
+                fw.append(" : " + QString::number(from, 10));
+                fw.append("] ");
+            }
+            fw.append(st);
+            ui->log->append(fw);
+            if (fw.at(fw.length() - 1) != '\n') fw.append("\n");
+            fil.write(fw.toLocal8Bit(), fw.length());
+            //
+            mutex_prn.unlock();
+        }
+
+        fil.close();
+    }
+}
+//-------------------------------------------------------------------------------------------
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+    Uki = this;
+    this->setWindowIcon(QIcon("png/main.png"));
+
+    tcpServer = nullptr;
+    MyError = 0;
+    total_cli = 0;
+
+    setWindowTitle(title + " ver. " + vers);
+
+    ui->starting->setEnabled(true);
+    ui->stoping->setEnabled(false);
+    ui->sending->setEnabled(false);
+
+    tmr_sec = startTimer(1000);// 1 sec.
+    if (tmr_sec <= 0) {
+        MyError |= 2;
+        throw TheError(MyError);
+    }
+
+    connect(this, SIGNAL(sigNewPrn()), this, SLOT(getFromQue()));
+
+}
+//-----------------------------------------------------------------------
+MainWindow::~MainWindow()
+{
+    while (!que.isEmpty()) {
+        s_prn t = que.dequeue();
+        delete t.fn;
+        delete t.st;
+    }
+    killTimer(tmr_sec);
+    this->disconnect();
+    delete ui;
+}
+//-----------------------------------------------------------------------
+
+MainWindow::TheError::TheError(int err) { code = err; }
+
+//-----------------------------------------------------------------------
+void MainWindow::timerEvent(QTimerEvent *event)
+{ 
+    if (tmr_sec == event->timerId()) {
+        time_t it_ct = QDateTime::currentDateTime().toTime_t();
+        struct tm *ctimka = localtime(&it_ct);
+        QString dt;
+        dt.sprintf(" | %02d.%02d.%02d %02d:%02d:%02d",
+                    ctimka->tm_mday,
+                    ctimka->tm_mon+1,
+                    ctimka->tm_year+1900,
+                    ctimka->tm_hour,
+                    ctimka->tm_min,
+                    ctimka->tm_sec);
+        setWindowTitle(title + " ver. " + vers + dt);
+    }
+}
+//-----------------------------------------------------------------------
+void MainWindow::putToQue(const char *fn, QString st, bool pr, int from)
+{
+    s_prn two;
+    two.fd = from;
+    two.pr = pr;
+    two.st = new QString(st);
+    two.fn = new QByteArray(fn);
+    que.enqueue(two);
+    emit sigNewPrn();
+}
+//-----------------------------------------------------------------------
+void MainWindow::getFromQue()
+{
+    if (!que.isEmpty()) {
+        s_prn t = que.dequeue();
+        QByteArray ar(*t.fn);
+        LogSave(ar.data(), *t.st, t.pr, t.fd);
+        delete t.fn;
+        delete t.st;
+    }
+}
+//-----------------------------------------------------------------------
+void MainWindow::on_starting_clicked()
+{
+
+    ui->stoping->setEnabled(true);
+
+    tcpServer = new QTcpServer(this);
+
+    if (!tcpServer) {
+        MyError |= 1;
+        throw TheError(MyError);
+    }
+
+    QString stx =   "Server start, listen port " + QString::number(srv_port, 10) +
+                    ", timeout " +                 QString::number(tmr_data_wait/1000, 10) +
+                    " sec.";
+
+    connect(tcpServer, SIGNAL(newConnection()), this, SLOT(newuser()));
+
+    if (!tcpServer->listen(QHostAddress("0.0.0.0"), srv_port & 0xffff) && !server_status) {
+        stx.clear();
+        stx.append("Unable to start server on port " + QString::number(srv_port, 10) + " : " + tcpServer->errorString());
+        ui->starting->setEnabled(true);
+    } else {
+        server_status = 1;
+        ui->starting->setEnabled(false);
+    }
+
+    statusBar()->clearMessage();
+    statusBar()->showMessage(stx);
+
+    putToQue(__func__, stx, true, -1);
+}
+//-----------------------------------------------------------------------
+void MainWindow::on_stoping_clicked()
+{
+    if (server_status) {
+
+        if (total_cli) emit sigStopAll();
+
+        tcpServer->disconnect();
+        tcpServer->close();
+        QString stx = "Server stop.";
+        statusBar()->clearMessage();
+        statusBar()->showMessage(stx);
+
+        putToQue(__func__, stx, true, -1);
+
+        server_status = 0;
+
+        ui->starting->setEnabled(true);
+        ui->stoping->setEnabled(false);
+        ui->sending->setEnabled(false);
+    }
+}
+//-----------------------------------------------------------------------
+void MainWindow::newuser()
+{
+    if (server_status) {
+        QTcpSocket *cli = tcpServer->nextPendingConnection();
+        int fd = static_cast<int>(cli->socketDescriptor());
+        total_cli++;
+        QString stx = "New client '" + cli->peerAddress().toString() +
+                ":" + QString::number(cli->peerPort(), 10) +
+                "' online, socket " + QString::number(fd, 10);
+        statusBar()->clearMessage();
+        statusBar()->showMessage(stx);
+        //ui->sending->setEnabled(true);
+
+        putToQue(__func__, stx, true, fd);
+
+        ui->client->setText(cli->peerAddress().toString() + ":" + QString::number(cli->peerPort(), 10));
+
+        itThread *th = new itThread(cli, this);
+        if (th) {
+            connect(th,   SIGNAL(finished()),   th, SLOT(deleteLater()));
+            connect(this, SIGNAL(sigStopAll()), th, SLOT(stop()));
+            th->start();
+        }
+
+    }
+}
+//-----------------------------------------------------------------------
+
+
 
 
 

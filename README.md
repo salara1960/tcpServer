@@ -1,5 +1,5 @@
 # tcpServer
-TCP Server for testing stm32_sim868 project
+TCP Server for testing stm32_sim868 project (thread mode)
 
 start :
 
