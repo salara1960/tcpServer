@@ -12,7 +12,8 @@
 //char const *vers = "2.2";//17.06.2019 - add queue for print log via LogSave(...)
 //char const *vers = "2.3";//18.06.2019 - minor changes in print_queue : edit s_prn (used dynamic memory)
 //char const *vers = "2.4";//18.06.2019 - minor changes : add inactive client's timer
-char const *vers = "2.5";//18.06.2019 - minor changes+
+//char const *vers = "2.5";//18.06.2019 - minor changes+
+char const *vers = "2.6";//18.07.2019 - minor changes : gui form change
 
 const QString title = "TCP server (for STM32_SIM868)";
 
@@ -32,13 +33,63 @@ int tmr_data_wait = 30000;
 //*****************************************************************************************************
 //*****************************************************************************************************
 
+//-----------------------------------------------------------------------
+itThread::itThread(QTcpSocket *soc)
+{
+    socket = soc;
+    client = new itClient(socket);
 
-itThread::itThread(QTcpSocket *soc, QObject *parent) : QThread(parent)
+    //client->moveToThread(this);
+
+    fd = client->getFD();
+
+    connect(socket, SIGNAL(disconnected()), this, SLOT(stop()));
+
+    tid = nullptr;
+}
+//-----------------------------------------------------------------------
+void itThread::run()
+{
+    tid = reinterpret_cast<void *>(this->currentThread());
+
+    QString st; st.sprintf("Start new thread (%p). Total clients %u.", tid, total_cli);
+
+    Uki->putToQue(__func__, st, true, fd);
+
+    exec();
+}
+//-----------------------------------------------------------------------
+void itThread::stop()
+{
+    if (total_cli) total_cli--;
+
+    this->disconnect();
+
+    QString st; st.sprintf("Stop thread (%p). Total clients %u.", tid, total_cli);
+
+    Uki->putToQue(__func__, st, true, fd);
+
+    socket->disconnect();
+
+    //if (socket->isOpen()) socket->close();
+
+    //delete client;
+
+
+    exit(0);
+}
+//-----------------------------------------------------------------------
+
+//*****************************************************************************************************
+//*****************************************************************************************************
+//*****************************************************************************************************
+
+itClient::itClient(QTcpSocket *soc)
 {
     socket = soc;
     fd = static_cast<int>(socket->socketDescriptor());
     err = 0;
-    tid = nullptr;
+    tid = this->thread();
     clearParam();
 
     connect(socket, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(slotErrorClient(QAbstractSocket::SocketError)));
@@ -54,18 +105,17 @@ itThread::itThread(QTcpSocket *soc, QObject *parent) : QThread(parent)
 
 }
 //-----------------------------------------------------------------------
-void itThread::run()
+int itClient::getFD()
 {   
-    tid = (void *)this->currentThread();
-
-    QString st; st.sprintf("Start new thread (%p). Total clients %u.", tid, total_cli);
-
-    Uki->putToQue(__func__, st, true, fd);
-
-    exec();
+    return fd;
 }
 //-----------------------------------------------------------------------
-void itThread::clearParam()
+QTcpSocket *itClient::getSoc()
+{
+    return socket;
+}
+//-----------------------------------------------------------------------
+void itClient::clearParam()
 {
     memset(to_cli,   0, sizeof(to_cli));
     memset(from_cli, 0, sizeof(from_cli));
@@ -75,7 +125,7 @@ void itThread::clearParam()
     rdy = false;
 }
 //-----------------------------------------------------------------------
-void itThread::slotTime()
+void itClient::slotTime()
 {
     time_t now = QDateTime::currentDateTime().toTime_t();
     long delta = reinterpret_cast<long>(now) - reinterpret_cast<long>(epoch);
@@ -88,7 +138,7 @@ void itThread::slotTime()
 
 }
 //-----------------------------------------------------------------------
-void itThread::slotReadClient()
+void itClient::slotReadClient()
 {
     lenrecv += socket->read(from_cli + lenrecv, rxdata - lenrecv);
 
@@ -97,7 +147,7 @@ void itThread::slotReadClient()
     if (rdy) emit sigRdyPack();
 }
 //-----------------------------------------------------------------------
-void itThread::slotRdyPack()
+void itClient::slotRdyPack()
 {
     if (!lenrecv) return;
 
@@ -124,9 +174,13 @@ void itThread::slotRdyPack()
     clearParam();
 
     tmr_data.singleShot(tmr_data_wait, this, SLOT(slotTime()));
+
+
+    dt.sprintf("cur_tid=%p",tid);
+    Uki->putToQue(__func__, dt, true, fd);
 }
 //-----------------------------------------------------------------------
-void itThread::slotErrorClient(QAbstractSocket::SocketError SErr)
+void itClient::slotErrorClient(QAbstractSocket::SocketError SErr)
 {
 QString qs = "Socket ERROR (" + QString::number(static_cast<int>(SErr), 10) + ") : " + socket->errorString();
 
@@ -140,20 +194,16 @@ QString qs = "Socket ERROR (" + QString::number(static_cast<int>(SErr), 10) + ")
     emit sigDone();
 }
 //-----------------------------------------------------------------------
-void itThread::stop()
+void itClient::stop()
 {
     if (total_cli) total_cli--;
 
     disconnect(this, SIGNAL(sigDone()));
-
+/*
     if (!err) {
         if (socket->isOpen()) socket->close();
     }
-    QString st; st.sprintf("Stop thread (%p). Total clients %u.", tid, total_cli);
-
-    Uki->putToQue(__func__, st, true, fd);
-
-    exit(0);
+*/
 }
 
 //*********************************************************************************************
@@ -274,6 +324,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         throw TheError(MyError);
     }
 
+    ui->port->setText(QString::number(srv_port, 10));
+
     connect(this, SIGNAL(sigNewPrn()), this, SLOT(getFromQue()));
 
 }
@@ -345,15 +397,21 @@ void MainWindow::on_starting_clicked()
         throw TheError(MyError);
     }
 
-    QString stx =   "Server start, listen port " + QString::number(srv_port, 10) +
+    bool oks;
+    int prt = ui->port->text().toInt(&oks, 10);
+    if (oks) srv_port = prt;
+    QString port_str = QString::number(srv_port, 10);
+
+    QString stx =   "Server start, listen port " + port_str +
                     ", timeout " +                 QString::number(tmr_data_wait/1000, 10) +
                     " sec.";
 
     connect(tcpServer, SIGNAL(newConnection()), this, SLOT(newuser()));
 
+
     if (!tcpServer->listen(QHostAddress("0.0.0.0"), srv_port & 0xffff) && !server_status) {
         stx.clear();
-        stx.append("Unable to start server on port " + QString::number(srv_port, 10) + " : " + tcpServer->errorString());
+        stx.append("Unable to start server on port " + port_str + " : " + tcpServer->errorString());
         ui->starting->setEnabled(true);
     } else {
         server_status = 1;
@@ -391,11 +449,11 @@ void MainWindow::on_stoping_clicked()
 void MainWindow::newuser()
 {
     if (server_status) {
-        QTcpSocket *cli = tcpServer->nextPendingConnection();
-        int fd = static_cast<int>(cli->socketDescriptor());
+        QTcpSocket *soc = tcpServer->nextPendingConnection();
+        int fd = static_cast<int>(soc->socketDescriptor());
         total_cli++;
-        QString stx = "New client '" + cli->peerAddress().toString() +
-                ":" + QString::number(cli->peerPort(), 10) +
+        QString stx = "New client '" + soc->peerAddress().toString() +
+                ":" + QString::number(soc->peerPort(), 10) +
                 "' online, socket " + QString::number(fd, 10);
         statusBar()->clearMessage();
         statusBar()->showMessage(stx);
@@ -403,10 +461,13 @@ void MainWindow::newuser()
 
         putToQue(__func__, stx, true, fd);
 
-        ui->client->setText(cli->peerAddress().toString() + ":" + QString::number(cli->peerPort(), 10));
+        ui->client->setText(soc->peerAddress().toString() + ":" + QString::number(soc->peerPort(), 10));
 
-        itThread *th = new itThread(cli, this);
+        //itClient *cli = new itClient(soc);
+
+        itThread *th = new itThread(soc);
         if (th) {
+            //cli->moveToThread(th);
             connect(th,   SIGNAL(finished()),   th, SLOT(deleteLater()));
             connect(this, SIGNAL(sigStopAll()), th, SLOT(stop()));
             th->start();

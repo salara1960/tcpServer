@@ -37,7 +37,7 @@ MOVE          = mv -f
 TAR           = tar -cf
 COMPRESS      = gzip -9f
 DISTNAME      = tcpServer1.0.0
-DISTDIR = /home/alarm/Project/Qt/tcpSrvThread/.tmp/tcpServer1.0.0
+DISTDIR = /home/alarm/Project/Qt/tcpSrvCliThread/.tmp/tcpServer1.0.0
 LINK          = g++
 LFLAGS        = -Wl,-rpath,/home/alarm/Qt/5.12.1/gcc_64/lib
 LIBS          = $(SUBLIBS) -L/home/alarm/Qt/5.12.1/gcc_64/lib -lQt5Widgets -lQt5Gui -lQt5Network -lQt5Core -lGL -lpthread   
@@ -231,7 +231,6 @@ DIST          = ../../../Qt/5.12.1/gcc_64/mkspecs/features/spec_pre.prf \
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/qt_config.prf \
 		../../../Qt/5.12.1/gcc_64/mkspecs/linux-g++/qmake.conf \
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/spec_post.prf \
-		.qmake.stash \
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/exclusive_builds.prf \
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/toolchain.prf \
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/default_pre.prf \
@@ -436,7 +435,6 @@ Makefile: tcpServer.pro ../../../Qt/5.12.1/gcc_64/mkspecs/linux-g++/qmake.conf .
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/qt_config.prf \
 		../../../Qt/5.12.1/gcc_64/mkspecs/linux-g++/qmake.conf \
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/spec_post.prf \
-		.qmake.stash \
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/exclusive_builds.prf \
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/toolchain.prf \
 		../../../Qt/5.12.1/gcc_64/mkspecs/features/default_pre.prf \
@@ -635,7 +633,6 @@ Makefile: tcpServer.pro ../../../Qt/5.12.1/gcc_64/mkspecs/linux-g++/qmake.conf .
 ../../../Qt/5.12.1/gcc_64/mkspecs/features/qt_config.prf:
 ../../../Qt/5.12.1/gcc_64/mkspecs/linux-g++/qmake.conf:
 ../../../Qt/5.12.1/gcc_64/mkspecs/features/spec_post.prf:
-.qmake.stash:
 ../../../Qt/5.12.1/gcc_64/mkspecs/features/exclusive_builds.prf:
 ../../../Qt/5.12.1/gcc_64/mkspecs/features/toolchain.prf:
 ../../../Qt/5.12.1/gcc_64/mkspecs/features/default_pre.prf:
@@ -1033,7 +1030,7 @@ moc_mainwindow.cpp: mainwindow.h \
 		../../../Qt/5.12.1/gcc_64/include/QtCore/QQueue \
 		moc_predefs.h \
 		../../../Qt/5.12.1/gcc_64/bin/moc
-	/home/alarm/Qt/5.12.1/gcc_64/bin/moc $(DEFINES) --include /home/alarm/Project/Qt/tcpSrvThread/moc_predefs.h -I/home/alarm/Qt/5.12.1/gcc_64/mkspecs/linux-g++ -I/home/alarm/Project/Qt/tcpSrvThread -I/home/alarm/Qt/5.12.1/gcc_64/include -I/home/alarm/Qt/5.12.1/gcc_64/include/QtWidgets -I/home/alarm/Qt/5.12.1/gcc_64/include/QtGui -I/home/alarm/Qt/5.12.1/gcc_64/include/QtNetwork -I/home/alarm/Qt/5.12.1/gcc_64/include/QtCore -I/usr/include/c++/5 -I/usr/include/x86_64-linux-gnu/c++/5 -I/usr/include/c++/5/backward -I/usr/lib/gcc/x86_64-linux-gnu/5/include -I/usr/local/include -I/usr/lib/gcc/x86_64-linux-gnu/5/include-fixed -I/usr/include/x86_64-linux-gnu -I/usr/include mainwindow.h -o moc_mainwindow.cpp
+	/home/alarm/Qt/5.12.1/gcc_64/bin/moc $(DEFINES) --include /home/alarm/Project/Qt/tcpSrvCliThread/moc_predefs.h -I/home/alarm/Qt/5.12.1/gcc_64/mkspecs/linux-g++ -I/home/alarm/Project/Qt/tcpSrvCliThread -I/home/alarm/Qt/5.12.1/gcc_64/include -I/home/alarm/Qt/5.12.1/gcc_64/include/QtWidgets -I/home/alarm/Qt/5.12.1/gcc_64/include/QtGui -I/home/alarm/Qt/5.12.1/gcc_64/include/QtNetwork -I/home/alarm/Qt/5.12.1/gcc_64/include/QtCore -I/usr/include/c++/5 -I/usr/include/x86_64-linux-gnu/c++/5 -I/usr/include/c++/5/backward -I/usr/lib/gcc/x86_64-linux-gnu/5/include -I/usr/local/include -I/usr/lib/gcc/x86_64-linux-gnu/5/include-fixed -I/usr/include/x86_64-linux-gnu -I/usr/include mainwindow.h -o moc_mainwindow.cpp
 
 compiler_moc_objc_header_make_all:
 compiler_moc_objc_header_clean:

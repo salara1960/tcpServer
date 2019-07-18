@@ -57,13 +57,13 @@ extern const char *vers;
 extern const QString title;
 
 //********************************************************************************
-class itThread : public QThread
+class itClient : public QObject
 {
   Q_OBJECT
 
   public:
-    explicit itThread(QTcpSocket *soc, QObject *parent = nullptr);
-    void run();
+    explicit itClient(QTcpSocket *soc);
+    //void run();
 
 signals:
     void sigRdyPack();
@@ -78,6 +78,8 @@ public slots:
     void slotErrorClient(QAbstractSocket::SocketError);
     void slotTime();
     void stop();
+    int getFD();
+    QTcpSocket *getSoc();
 
     friend class MainWindow;
 
@@ -89,6 +91,37 @@ private:
     qint32 seq_number, pack_number;
     QTimer tmr_data;
     time_t epoch;
+    void *tid;
+};
+
+//********************************************************************************
+class itThread : public QThread
+{
+  Q_OBJECT
+
+  public:
+    //explicit itThread(QTcpSocket *soc, QObject *parent = nullptr);
+    explicit itThread(QTcpSocket *soc);
+    void run();
+/*
+signals:
+    void sigRdyPack();
+    void sigTime();
+    void sigDone();
+    void error(QTcpSocket::SocketError);
+*/
+public slots:
+/*    void clearParam();
+    void slotReadClient();
+    void slotRdyPack();
+    void slotErrorClient(QAbstractSocket::SocketError);
+    void slotTime();*/
+    void stop();
+
+private:
+    itClient *client;
+    QTcpSocket *socket;
+    int fd;
     void *tid;
 };
 
