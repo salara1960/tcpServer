@@ -121,7 +121,7 @@ public slots:
 private:
     itClient *client;
     QTcpSocket *socket;
-    int fd;
+    int fd, fls;
     void *tid;
 };
 

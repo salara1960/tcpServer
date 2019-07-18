@@ -13,7 +13,8 @@
 //char const *vers = "2.3";//18.06.2019 - minor changes in print_queue : edit s_prn (used dynamic memory)
 //char const *vers = "2.4";//18.06.2019 - minor changes : add inactive client's timer
 //char const *vers = "2.5";//18.06.2019 - minor changes+
-char const *vers = "2.6";//18.07.2019 - minor changes : gui form change
+//char const *vers = "2.6";//18.07.2019 - minor changes : gui form change - add port item
+char const *vers = "2.7";//18.07.2019 - minor changes++
 
 const QString title = "TCP server (for STM32_SIM868)";
 
@@ -22,7 +23,7 @@ int srv_port = 9192;
 const QString LogFileName = "logs.txt";
 
 const char *SeqNum = "SeqNum";
-const char *DataSN = "DataSeqNum";
+const char *DataSN = "InfSeqNum";
 MainWindow *Uki = nullptr;
 
 static uint32_t total_cli = 0;
@@ -46,6 +47,7 @@ itThread::itThread(QTcpSocket *soc)
     connect(socket, SIGNAL(disconnected()), this, SLOT(stop()));
 
     tid = nullptr;
+    fls = 0;
 }
 //-----------------------------------------------------------------------
 void itThread::run()
@@ -61,6 +63,9 @@ void itThread::run()
 //-----------------------------------------------------------------------
 void itThread::stop()
 {
+    if (fls) return;
+    fls = 1;
+
     if (total_cli) total_cli--;
 
     this->disconnect();
@@ -69,12 +74,10 @@ void itThread::stop()
 
     Uki->putToQue(__func__, st, true, fd);
 
+    socket->close();
     socket->disconnect();
 
-    //if (socket->isOpen()) socket->close();
-
-    //delete client;
-
+    delete client;
 
     exit(0);
 }
@@ -91,6 +94,7 @@ itClient::itClient(QTcpSocket *soc)
     err = 0;
     tid = this->thread();
     clearParam();
+    pack_number = 0;
 
     connect(socket, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(slotErrorClient(QAbstractSocket::SocketError)));
     connect(socket, SIGNAL(readyRead()),    this, SLOT(slotReadClient()), Qt::DirectConnection);
@@ -153,11 +157,11 @@ void itClient::slotRdyPack()
 
     epoch = QDateTime::currentDateTime().toTime_t();
 
-    QString dt;
+    QString dt; dt.sprintf("tid=%p\n", tid);
     int seqn = -1;
     char numName[64] = {0};
-    char *uk = strstr(from_cli, "\r\n");
-    if (uk) *uk = '\0';
+    char *uk = strstr(from_cli, "}\r\n");
+    if (uk) *(uk + 1) = '\0';
 
     Uki->putToQue(__func__, dt.append(from_cli), true, fd);
 
@@ -175,9 +179,6 @@ void itClient::slotRdyPack()
 
     tmr_data.singleShot(tmr_data_wait, this, SLOT(slotTime()));
 
-
-    dt.sprintf("cur_tid=%p",tid);
-    Uki->putToQue(__func__, dt, true, fd);
 }
 //-----------------------------------------------------------------------
 void itClient::slotErrorClient(QAbstractSocket::SocketError SErr)
@@ -237,7 +238,7 @@ int ret = -1;
 
     QJsonParseError err;
     QByteArray buf(in);
-    QString stx;
+    QString stx; stx.clear();
     QJsonObject *obj = nullptr;
 
     QJsonDocument jdoc= QJsonDocument::fromJson(buf , &err);
@@ -252,7 +253,7 @@ int ret = -1;
             if (!tmp.isUndefined()) {
                 ret = tmp.toInt();
                 strcpy(packName, DataSN);
-                stx = "Data parser OK";
+                //stx = "Data parser OK";
             } else {
                 strcpy(packName, "Unknown");
                 stx = "Data parser error : unknown";
@@ -260,7 +261,7 @@ int ret = -1;
         }
     }
 
-    putToQue(__func__, stx, true, -1);
+    if (stx.length() > 0) putToQue(__func__, stx, true, -1);
 
     statusBar()->clearMessage();
     statusBar()->showMessage(stx);
@@ -450,8 +451,7 @@ void MainWindow::newuser()
 {
     if (server_status) {
         QTcpSocket *soc = tcpServer->nextPendingConnection();
-        int fd = static_cast<int>(soc->socketDescriptor());
-        total_cli++;
+        int fd = static_cast<int>(soc->socketDescriptor());      
         QString stx = "New client '" + soc->peerAddress().toString() +
                 ":" + QString::number(soc->peerPort(), 10) +
                 "' online, socket " + QString::number(fd, 10);
@@ -467,6 +467,7 @@ void MainWindow::newuser()
 
         itThread *th = new itThread(soc);
         if (th) {
+            total_cli++;
             //cli->moveToThread(th);
             connect(th,   SIGNAL(finished()),   th, SLOT(deleteLater()));
             connect(this, SIGNAL(sigStopAll()), th, SLOT(stop()));
