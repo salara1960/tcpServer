@@ -326,6 +326,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 {
     ui->setupUi(this);
     Uki = this;
+    this->setFixedSize(this->size());
     this->setWindowIcon(QIcon("png/main.png"));
 
     tcpServer = nullptr;
