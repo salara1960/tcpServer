@@ -22,6 +22,7 @@
 #include <QThread>
 #include <QLineEdit>
 #include <QDebug>
+#include <QPlainTextEdit>
 
 #include <QString>
 #include <QMutex>
@@ -40,6 +41,11 @@ typedef struct {
     QByteArray *fn;
 } s_prn;
 
+typedef struct {
+    QTcpSocket *soc;
+    int tab;
+    QWidget *pages;
+} s_cli_info;
 //********************************************************************************
 
 class MainWindow;
@@ -100,29 +106,18 @@ class itThread : public QThread
   Q_OBJECT
 
   public:
-    //explicit itThread(QTcpSocket *soc, QObject *parent = nullptr);
-    explicit itThread(QTcpSocket *soc);
+    explicit itThread(s_cli_info);
     void run();
-/*
-signals:
-    void sigRdyPack();
-    void sigTime();
-    void sigDone();
-    void error(QTcpSocket::SocketError);
-*/
+
 public slots:
-/*    void clearParam();
-    void slotReadClient();
-    void slotRdyPack();
-    void slotErrorClient(QAbstractSocket::SocketError);
-    void slotTime();*/
     void stop();
 
 private:
     itClient *client;
-    QTcpSocket *socket;
     int fd, fls;
     void *tid;
+    itThread *th;
+    s_cli_info cli;
 };
 
 
@@ -150,10 +145,12 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
     void timerEvent(QTimerEvent *event);
+    void ClearTab(int, QWidget *, itThread *);
+    void clearThreadList();
 
 public slots:
-    void LogSave(const char *func, QString st, bool pr, int from);
-    int CheckPack(const char *in, char *packName);
+    void LogSave(const char *, QString, bool, int);
+    int CheckPack(const char *, char *);
     void setBut(bool en);
     void setAck(QString &);
     void toStatusBar(const QString &);
@@ -179,6 +176,9 @@ private:
     QMutex mutex_prn;
     //
     QQueue <s_prn> que;
+    QIcon ico_green, ico_none;
+    QList <itThread *> allThreads;
+
 };
 
 #endif // MAINWINDOW_H

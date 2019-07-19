@@ -14,7 +14,8 @@
 //char const *vers = "2.4";//18.06.2019 - minor changes : add inactive client's timer
 //char const *vers = "2.5";//18.06.2019 - minor changes+
 //char const *vers = "2.6";//18.07.2019 - minor changes : gui form change - add port item
-char const *vers = "2.7";//18.07.2019 - minor changes++
+//char const *vers = "2.7";//18.07.2019 - minor changes++
+char const *vers = "2.8";//19.07.2019 - minor changes : add/remove tab for gui QTabWidget object
 
 const QString title = "TCP server (for STM32_SIM868)";
 
@@ -27,7 +28,7 @@ const char *DataSN = "InfSeqNum";
 MainWindow *Uki = nullptr;
 
 static uint32_t total_cli = 0;
-int tmr_data_wait = 30000;
+int tmr_data_wait = 60000;
 
 
 //*****************************************************************************************************
@@ -35,16 +36,28 @@ int tmr_data_wait = 30000;
 //*****************************************************************************************************
 
 //-----------------------------------------------------------------------
-itThread::itThread(QTcpSocket *soc)
+itThread::itThread(s_cli_info cl)
 {
-    socket = soc;
-    client = new itClient(socket);
+/*typedef struct {
+    QTcpSocket *soc;
+    int tab;
+    QWidget *pages;
+} s_cli_info;*/
+
+    cli = cl;
+    //socket = cli.soc;
+    //tab    = cli.tab;
+    //pages = cli.pages;
+    th = this;
+    //log = cli.log;
+    client = new itClient(cli.soc);
 
     //client->moveToThread(this);
 
     fd = client->getFD();
 
-    connect(socket, SIGNAL(disconnected()), this, SLOT(stop()));
+    connect(cli.soc, SIGNAL(disconnected()), this, SLOT(stop()));
+    //connect(client, );
 
     tid = nullptr;
     fls = 0;
@@ -74,8 +87,11 @@ void itThread::stop()
 
     Uki->putToQue(__func__, st, true, fd);
 
-    socket->close();
-    socket->disconnect();
+    Uki->ClearTab(cli.tab, cli.pages, th);
+
+
+    if (cli.soc->isOpen()) cli.soc->close();
+    cli.soc->disconnect();
 
     delete client;
 
@@ -98,7 +114,8 @@ itClient::itClient(QTcpSocket *soc)
 
     connect(socket, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(slotErrorClient(QAbstractSocket::SocketError)));
     connect(socket, SIGNAL(readyRead()),    this, SLOT(slotReadClient()), Qt::DirectConnection);
-    //connect(socket, SIGNAL(disconnected()), this, SLOT(stop()));
+
+    connect(socket, SIGNAL(disconnected()), this, SLOT(stop()));
 
     connect(this,   SIGNAL(sigRdyPack()),   this, SLOT(slotRdyPack()));
     connect(this,   SIGNAL(sigDone()),      this, SLOT(stop()));
@@ -188,6 +205,7 @@ QString qs = "Socket ERROR (" + QString::number(static_cast<int>(SErr), 10) + ")
     QString stx = "Close client, socket " + QString::number(fd, 10) + ". " + qs;
 
     Uki->putToQue(__func__, stx, true, fd);
+
     Uki->toStatusBar(stx);
 
     err = 1;
@@ -197,14 +215,13 @@ QString qs = "Socket ERROR (" + QString::number(static_cast<int>(SErr), 10) + ")
 //-----------------------------------------------------------------------
 void itClient::stop()
 {
-    if (total_cli) total_cli--;
+    //if (total_cli) total_cli--;
 
-    disconnect(this, SIGNAL(sigDone()));
-/*
-    if (!err) {
-        if (socket->isOpen()) socket->close();
-    }
-*/
+    this->disconnect();
+    //disconnect(this, SIGNAL(sigDone()));
+
+    if (socket->isOpen()) socket->close();
+
 }
 
 //*********************************************************************************************
@@ -292,7 +309,9 @@ void MainWindow::LogSave(const char *func, QString st, bool pr, int from)
                 fw.append("] ");
             }
             fw.append(st);
-            ui->log->append(fw);
+            //
+            ui->log->appendPlainText(fw);
+            //
             if (fw.at(fw.length() - 1) != '\n') fw.append("\n");
             fil.write(fw.toLocal8Bit(), fw.length());
             //
@@ -326,6 +345,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     }
 
     ui->port->setText(QString::number(srv_port, 10));
+
+    allThreads.clear();
+
+    ico_green = QIcon("png/Green_act.png");
+    ico_none = QIcon();
 
     connect(this, SIGNAL(sigNewPrn()), this, SLOT(getFromQue()));
 
@@ -444,6 +468,8 @@ void MainWindow::on_stoping_clicked()
         ui->starting->setEnabled(true);
         ui->stoping->setEnabled(false);
         ui->sending->setEnabled(false);
+
+        clearThreadList();
     }
 }
 //-----------------------------------------------------------------------
@@ -451,35 +477,75 @@ void MainWindow::newuser()
 {
     if (server_status) {
         QTcpSocket *soc = tcpServer->nextPendingConnection();
-        int fd = static_cast<int>(soc->socketDescriptor());      
-        QString stx = "New client '" + soc->peerAddress().toString() +
-                ":" + QString::number(soc->peerPort(), 10) +
-                "' online, socket " + QString::number(fd, 10);
+        int fd = static_cast<int>(soc->socketDescriptor());
+        QString who = soc->peerAddress().toString() + ":" + QString::number(soc->peerPort(), 10);
+        QString stx = "New client '" + who + "' online, socket " + QString::number(fd, 10);
         statusBar()->clearMessage();
         statusBar()->showMessage(stx);
         //ui->sending->setEnabled(true);
 
         putToQue(__func__, stx, true, fd);
 
-        ui->client->setText(soc->peerAddress().toString() + ":" + QString::number(soc->peerPort(), 10));
-
         //itClient *cli = new itClient(soc);
 
-        itThread *th = new itThread(soc);
+        total_cli++;
+
+        s_cli_info cli_info = {nullptr, 0, nullptr};
+        cli_info.soc = soc;
+        cli_info.tab = static_cast<int>(total_cli);
+        who.insert(0, QString::number(cli_info.tab, 10) + " : ");
+        cli_info.pages = new QWidget(this);
+        ui->wins->insertTab(cli_info.tab, cli_info.pages, ico_green, who);
+
+        itThread *th = new itThread(cli_info);
         if (th) {
-            total_cli++;
+            allThreads << th;
             //cli->moveToThread(th);
             connect(th,   SIGNAL(finished()),   th, SLOT(deleteLater()));
             connect(this, SIGNAL(sigStopAll()), th, SLOT(stop()));
             th->start();
-        }
+        } else total_cli--;
 
     }
 }
 //-----------------------------------------------------------------------
+void MainWindow::clearThreadList()
+{
+    int cnt = allThreads.length(); if (!cnt) return;
 
+    int i = 0;
+    while (i < cnt) {
+        allThreads.removeAt(i);
+        i++;
+    }
 
+    putToQue(__func__, "Remove from allThreads list " + QString::number(cnt, 10) + " items.", true, -1);
 
+}
+//-----------------------------------------------------------------------
+void MainWindow::ClearTab(int tab, QWidget *ptr, itThread *th)
+{
+    if (tab) {
+        if (ptr) delete ptr;
+        ui->wins->removeTab(tab); 
+        if (th) {
+            int i = 0, cnt = allThreads.length();
+            while (i < cnt) {
+                if (th == allThreads.at(i)) {
+                    allThreads.removeAt(i);
+//                    QString stx; stx.sprintf("Remove from allThreads(%d) list item %p (tab=%d)", cnt, reinterpret_cast<void *>(th), tab);
+//                    putToQue(__func__, stx, true, -1);
+                    break;
+                }
+                i++;
+            }
+        }
+    } else {
+        ui->wins->setTabText(tab, "");
+        ui->wins->setTabIcon(tab, ico_none);
+    }
+}
+//-----------------------------------------------------------------------
 
 
 

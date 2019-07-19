@@ -1,5 +1,9 @@
 <RCC>
     <qresource prefix="/">
         <file>png/main.png</file>
+	<file>png/Blue_act.png</file>
+	<file>png/Green_act.png</file>
+	<file>png/Red_act.png</file>
+	<file>png/Yellow_act.png</file>
     </qresource>
 </RCC>
